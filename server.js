@@ -3,7 +3,12 @@ const multer = require('multer')
 const crypto = require('crypto')
 
 const { connectToDB } = require('./lib/mongo');
-const { getImageInfoById, saveImageInfo } = require('./models/image');
+const {
+  getImageInfoById,
+  saveImageInfo,
+  saveImageFile,
+  getImageDownloadStream
+} = require('./models/image');
 
 const app = express();
 const port = process.env.PORT || 8000;
@@ -42,7 +47,8 @@ app.post('/images', upload.single('image'), async function (req, res, next) {
       filename: req.file.filename,
       mimetype: req.file.mimetype
     }
-    const id = await saveImageInfo(image)
+    // const id = await saveImageInfo(image)
+    const id = await saveImageFile(image)
     res.status(200).send({ id: id })
   } else {
     res.status(400).send({
@@ -55,8 +61,13 @@ app.get('/images/:id', async (req, res, next) => {
   try {
     const image = await getImageInfoById(req.params.id);
     if (image) {
-      image.url = `/media/images/${image.filename}`
-      res.status(200).send(image);
+      const resBody = {
+        _id: image._id,
+        url: `/media/images/${image.filename}`,
+        mimetype: image.metadata.mimetype,
+        userId: image.metadata.userId
+      }
+      res.status(200).send(resBody);
     } else {
       next();
     }
@@ -65,9 +76,22 @@ app.get('/images/:id', async (req, res, next) => {
   }
 });
 
-// app.get('/media/images/:filename')
+app.get('/media/images/:filename', function (req, res, next) {
+  getImageDownloadStream(req.params.filename)
+    .on('file', function (file) {
+      res.status(200).type(file.metadata.mimetype)
+    })
+    .on('error', function (err) {
+      if (err.code === 'ENOENT') {
+        next()
+      } else {
+        next(err)
+      }
+    })
+    .pipe(res)
+})
 
-app.use('/media/images/', express.static(`${__dirname}/uploads`))
+// app.use('/media/images/', express.static(`${__dirname}/uploads`))
 
 app.use('*', (req, res, next) => {
   res.status(404).send({
